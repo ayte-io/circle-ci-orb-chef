@@ -1,0 +1,122 @@
+version: '2.1'
+description: Orb providing support for Chef operations.
+commands:
+  setup-cdk:
+    description: Installs Chef Development Kit
+    parameters:
+      version:
+        type: string
+        default: 3.6.57
+    steps:
+      - run:
+          name: Chef Development Kit installation
+          command: |
+            if ! which sudo; then
+              apt-get update -y
+              apt-get install sudo
+            fi
+            if ! sudo apt-get install curl -y; then
+              sudo apt-get update -y
+              sudo apt-get install curl -y
+            fi
+            curl https://packages.chef.io/files/stable/chefdk/<< parameters.version >>/ubuntu/18.04/chefdk_<< parameters.version >>-1_amd64.deb -o /tmp/cdk.deb
+            sudo dpkg -i /tmp/cdk.deb
+            rm /tmp/cdk.deb
+
+  setup:
+    description: Installs packages required for work
+    parameters:
+      cdk_version:
+        type: string
+        default: 3.6.57
+    steps:
+      - setup-cdk:
+          version: << parameters.cdk_version >>
+  share:
+    description: Shares cookbook in target supermarket
+    parameters:
+      cookbook:
+        type: string
+        description: Cookbook name
+      location:
+        type: string
+        default: '..'
+        description: Directory cookbook is stored in
+      category:
+        type: string
+        default: Other
+      supermarket_url:
+        type: string
+        default: https://supermarket.chef.io
+      supermarket_key_variable:
+        type: string
+        default: SUPERMARKET_KEY
+        description: Variable containing base64-encoded Supermarket key
+      supermarket_user:
+        type: string
+        description: User that will share cookbook
+    steps:
+      - run:
+          name: Access key setup
+          command: |
+            if [[ -z "$<< parameters.supermarket_key_variable >>" ]]; then
+                echo "Specified environment variable << parameters.supermarket_key_variable >> is empty, can't create Supermarket key"
+                exit 1
+            fi
+            echo $<< parameters.supermarket_key_variable >> | base64 -d > /tmp/supermarket.key
+            chmod 400 /tmp/supermarket.key
+      - run:
+          name: Cookbook share
+          command: |
+            knife supermarket share '<< parameters.cookbook >>' '<< parameters.category >>' \
+              --cookbook-path '<< parameters.location >>' \
+              --supermarket-site '<< parameters.supermarket_url >>' \
+              --user '<< parameters.supermarket_user >>' \
+              --key /tmp/supermarket.key
+      - run:
+          name: Access key cleanup
+          command: rm /tmp/supermarket.key
+jobs:
+  share:
+    description: Job that pushes your code to Supermarket
+    parameters:
+      cookbook:
+        type: string
+        description: Cookbook name
+      location:
+        type: string
+        default: '..'
+        description: Directory cookbook is stored in
+      category:
+        type: string
+        default: Other
+      supermarket_url:
+        type: string
+        default: https://supermarket.chef.io
+      supermarket_key_variable:
+        type: string
+        default: SUPERMARKET_KEY
+        description: Variable containing base64-encoded Supermarket key
+      supermarket_user:
+        type: string
+        description: User that will share cookbook
+      cdk_version:
+        type: string
+        default: 3.6.57
+    docker:
+      - image: circleci/ruby
+    working_directory: /tmp/workspace
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/workspace
+      - setup:
+          cdk_version: << parameters.cdk_version >>
+      - share:
+          cookbook: << parameters.cookbook >>
+          location: << parameters.location >>
+          category: << parameters.category >>
+          supermarket_url: << parameters.supermarket_url >>
+          supermarket_key_variable: << parameters.supermarket_key_variable >>
+          supermarket_user: << parameters.supermarket_user >>
+
